@@ -74,8 +74,15 @@ read any message instead of it flashing closed.
   barcode is boxed in green with its decoded value, so the operator can
   see exactly what the software is reading. A missing camera shows
   **NO SIGNAL** with the reason instead of stopping the app.
+- **START / STOP button** (top right, or **F2**) — arms and disarms the
+  station. While stopped nothing is captured: auto-capture is off, a
+  countdown already running is cancelled, and **Capture now** is greyed
+  out. The cameras keep streaming and barcodes are still detected and
+  boxed on screen, so you can position a board and read its label before
+  arming. Use it while loading a batch, adjusting the fixture, or cleaning
+  up. The app starts armed.
 - **Status pill** (top right) — the current state: watching, board
-  detected, saved, paused, or cameras not ready.
+  detected, saved, stopped, paused, or cameras not ready.
 - **Serial number panel** — the decoded SN in large text plus the countdown
   bar to the shot.
 - **Sidebar** — how many boards this session, and a running list of recent
@@ -104,6 +111,11 @@ read any message instead of it flashing closed.
    re-presentation (barcode out of view, then back) counts as a new attempt.
 5. If a label is damaged or unreadable, type the SN into the **Manual SN**
    field and click **Capture now** — same save/versioning logic.
+
+Pressing **STOP** at any point halts all of this immediately; **START**
+resumes it. A board already captured before a stop won't re-fire on start
+(it's still suppressed until it leaves view), but a new board placed while
+stopped is captured as soon as you start.
 
 `log.txt` records the serial number, attempt number, timestamp, image
 filenames, camera indices/resolution, and the timestamp skew between the

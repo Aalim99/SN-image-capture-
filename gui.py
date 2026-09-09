@@ -175,10 +175,12 @@ class App(tk.Tk):
         self.history = []
         self.flash_until = 0.0
         self.flash_text = None
-        self.paused = False
+        self.running = True   # operator armed/disarmed the station (Start/Stop)
+        self.paused = False   # settings dialog is open
         self._last_decode = 0.0
         self._last_preview = 0.0
         self._detections = []
+        self.visible_sn = None  # last confirmed SN in view; persists between decode ticks
 
         self._build_ui()
         self._tick()
@@ -203,9 +205,11 @@ class App(tk.Tk):
         self._build_sidebar(body)
         self._build_sn_panel()
         self._build_footer()
+        self._refresh_start_stop()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<F5>", lambda _e: self._reconnect())
+        self.bind("<F2>", lambda _e: self._toggle_running())
 
     def _build_header(self):
         header = tk.Frame(self, bg=C["bg"])
@@ -219,9 +223,21 @@ class App(tk.Tk):
         tk.Label(title_box, text=mode, bg=C["bg"],
                  fg=C["warn"] if self.demo else C["dim"], font=(FONT, 9)).pack(anchor="w")
 
-        self.status_canvas = tk.Canvas(header, height=42, width=520, bg=C["bg"],
+        self.status_canvas = tk.Canvas(header, height=42, width=460, bg=C["bg"],
                                        highlightthickness=0)
         self.status_canvas.pack(side="right")
+
+        self.start_stop_btn = tk.Button(
+            header,
+            command=self._toggle_running,
+            relief="flat",
+            borderwidth=0,
+            padx=26,
+            pady=10,
+            font=(FONT, 12, "bold"),
+            cursor="hand2",
+        )
+        self.start_stop_btn.pack(side="right", padx=(0, 14))
 
     def _build_sidebar(self, parent):
         sidebar = tk.Frame(parent, bg=C["bg"], width=290)
@@ -280,7 +296,8 @@ class App(tk.Tk):
                          relief="flat", font=(MONO, 12))
         entry.pack(side="left", padx=(10, 8), ipady=6)
         entry.bind("<Return>", lambda _e: self._manual_capture())
-        _button(footer, "Capture now", self._manual_capture, "primary").pack(side="left")
+        self.capture_btn = _button(footer, "Capture now", self._manual_capture, "primary")
+        self.capture_btn.pack(side="left")
 
         _button(footer, "Settings", self._open_settings).pack(side="right")
         _button(footer, "Reconnect cameras  (F5)", self._reconnect).pack(side="right", padx=8)
@@ -346,27 +363,31 @@ class App(tk.Tk):
         top_frame, _ = self.cam_mgr.top.latest()
         bottom_frame, _ = self.cam_mgr.bottom.latest()
 
-        if now - self._last_decode >= DECODE_INTERVAL and top_frame is not None:
+        if now - self._last_decode >= DECODE_INTERVAL:
             self._last_decode = now
-            self._detections = decode_detections(top_frame)
-            stable_sn = self.detector.update_from_texts([d.text for d in self._detections])
-            if self.detector.raw_detected:
-                self.last_seen_time = now
-            elif (
-                self.last_captured_sn is not None
-                and self.last_seen_time is not None
-                and now - self.last_seen_time >= self.settings["barcode_lost_reset_seconds"]
-            ):
-                self.last_captured_sn = None
-        else:
-            stable_sn = None
+            if top_frame is None:
+                self._detections = []
+                self.visible_sn = None
+            else:
+                self._detections = decode_detections(top_frame)
+                self.visible_sn = self.detector.update_from_texts(
+                    [d.text for d in self._detections]
+                )
+                if self.detector.raw_detected:
+                    self.last_seen_time = now
+                elif (
+                    self.last_captured_sn is not None
+                    and self.last_seen_time is not None
+                    and now - self.last_seen_time >= self.settings["barcode_lost_reset_seconds"]
+                ):
+                    self.last_captured_sn = None
 
         if now - self._last_preview >= PREVIEW_INTERVAL:
             self._last_preview = now
             self._update_pane(self.top_pane, self.cam_mgr.top, top_frame, self._detections)
             self._update_pane(self.bottom_pane, self.cam_mgr.bottom, bottom_frame, ())
 
-        self._run_state_machine(now, stable_sn)
+        self._run_state_machine(now)
         self.after(TICK_MS, self._tick)
 
     def _update_pane(self, pane, camera, frame, detections):
@@ -381,7 +402,15 @@ class App(tk.Tk):
         pane.set_status("live", C["ok"])
         pane.show_frame(frame, detections)
 
-    def _run_state_machine(self, now, stable_sn):
+    def _run_state_machine(self, now):
+        stable_sn = self.visible_sn
+        if not self.running:
+            self.sn_label.configure(text=stable_sn or "—", fg=C["dim"])
+            self.countdown_label.configure(text="")
+            self._draw_progress(0, C["warn"])
+            self._draw_status("stopped", C["muted"], "press Start (F2) to arm")
+            return
+
         if self.paused:
             self.state = "WATCHING"
             self.countdown_label.configure(text="")
@@ -441,6 +470,25 @@ class App(tk.Tk):
             return "waiting for camera frames"
         return None
 
+    def _toggle_running(self):
+        self.running = not self.running
+        if not self.running:
+            # abandon any countdown in flight rather than firing after Stop
+            self.state = "WATCHING"
+            self.current_sn = None
+            self.flash_until = 0.0
+        self._refresh_start_stop()
+
+    def _refresh_start_stop(self):
+        if self.running:
+            self.start_stop_btn.configure(text="■  STOP   (F2)", bg=C["err"], fg="#ffffff",
+                                          activebackground="#c0392b", activeforeground="#ffffff")
+            self.capture_btn.configure(state="normal", bg=C["accent"], fg="#ffffff")
+        else:
+            self.start_stop_btn.configure(text="▶  START   (F2)", bg=C["ok"], fg="#08240f",
+                                          activebackground="#16a34a", activeforeground="#ffffff")
+            self.capture_btn.configure(state="disabled", bg=C["panel_alt"], fg=C["dim"])
+
     def _start_countdown(self, sn):
         self.state = "COUNTDOWN"
         self.current_sn = sn
@@ -448,6 +496,8 @@ class App(tk.Tk):
         self.flash_until = 0.0
 
     def _manual_capture(self):
+        if not self.running:
+            return  # Enter in the SN field must not bypass Stop
         sn = self.manual_sn_var.get().strip()
         if not sn:
             messagebox.showwarning("Manual capture", "Enter a serial number first.")
