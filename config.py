@@ -25,7 +25,8 @@ def load_settings() -> dict:
         except (json.JSONDecodeError, OSError):
             data = {}
     merged = {**DEFAULT_SETTINGS, **data}
-    save_settings(merged)
+    if merged != data:  # don't touch the file when nothing actually changed
+        save_settings(merged)
     return merged
 
 

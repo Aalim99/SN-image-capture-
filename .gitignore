@@ -1,5 +1,9 @@
 __pycache__/
 *.pyc
+
+# Per-machine config, written by the app at runtime. Tracking it makes every
+# launch dirty the working tree and blocks git pull.
+settings.json
 .pytest_cache/
 .venv/
 venv/
