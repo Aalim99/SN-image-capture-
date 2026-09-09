@@ -23,7 +23,7 @@ import cv2
 from PIL import Image, ImageTk
 
 import config as config_module
-from barcode_scanner import StableBarcodeDetector, decode_detections
+from barcode_scanner import BACKEND_NAME, StableBarcodeDetector, decode_detections
 from capture_session import save_capture
 from imaging import fit_letterbox
 
@@ -194,7 +194,7 @@ class App(tk.Tk):
         video_area = tk.Frame(body, bg=C["bg"])
         video_area.pack(side="left", fill="both", expand=True)
 
-        self.top_pane = CameraPane(video_area, "TOP CAMERA", "barcode is read here")
+        self.top_pane = CameraPane(video_area, "TOP CAMERA", f"barcode read here · {BACKEND_NAME}")
         self.top_pane.container.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
         self.bottom_pane = CameraPane(video_area, "BOTTOM CAMERA", "")

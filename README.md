@@ -17,8 +17,9 @@ images plus a log file into a folder named after that serial number.
 pip install -r requirements.txt
 ```
 
-`pyzbar`'s Windows wheel bundles the ZBar DLL, so no separate barcode
-library install is needed.
+Barcode decoding uses `zxing-cpp`, which ships self-contained prebuilt
+wheels — no separate barcode library, DLL, or Visual C++ redistributable
+to install.
 
 ### Try it without any hardware
 
@@ -110,12 +111,17 @@ two shots.
 
 ## Troubleshooting
 
-**`No module named 'cv2'` (or `pyzbar`, `PIL`)** — dependencies aren't
-installed. Run `pip install -r requirements.txt` in this folder.
+**`No module named 'cv2'` (or `PIL`)** — dependencies aren't installed.
+Run `pip install -r requirements.txt` in this folder.
+
+**The top panel says `opencv` instead of `zxing-cpp`** — the app fell back
+to OpenCV's built-in decoder, which only reads QR codes. Run
+`pip install zxing-cpp` to get DataMatrix, Code128, Code39 and the rest.
 
 **`Unable to find zbar shared library` / `libzbar-64.dll` not found** —
-install the Microsoft Visual C++ Redistributable for Visual Studio 2013
-(both x64 and x86), which the bundled ZBar DLL depends on.
+this is pyzbar, which the app no longer needs. It's ignored automatically;
+just make sure `zxing-cpp` is installed. (If you specifically want pyzbar,
+it needs the Microsoft Visual C++ 2013 redistributable, x64 and x86.)
 
 **"No camera found at index 0"** — the app still opens and shows NO SIGNAL.
 Run `python list_cameras.py` to see which indices actually exist, set them
@@ -149,10 +155,17 @@ a shared trigger line.
 
 ## Barcode formats
 
-Decoding uses ZBar (via `pyzbar`), which covers QR codes and most 1D
-formats (Code128, Code39, EAN/UPC, etc.) — the two most common formats on
-PCB traceability labels. It does **not** decode DataMatrix; if your labels
-use DataMatrix, `pylibdmtx` would need to be added alongside it.
+The decoder backend is chosen automatically at startup, and the active one
+is shown in the top camera panel's header:
+
+| Backend | Formats | Notes |
+|---|---|---|
+| `zxing-cpp` | QR, **DataMatrix**, Code128, Code39, Aztec, PDF417, EAN/UPC, ITF | Default. Self-contained wheels, no system libraries |
+| `pyzbar` | QR, Code128, Code39, EAN/UPC (no DataMatrix) | Used only if zxing-cpp is absent; needs VC++ 2013 on Windows |
+| `opencv` | QR only | Last-resort fallback, always available |
+
+A backend that fails to load is skipped rather than stopping the app, so a
+broken install of one decoder can never prevent startup.
 
 ## Tests
 

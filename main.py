@@ -12,13 +12,6 @@ INSTALL_HINT = (
     "    pip install -r requirements.txt"
 )
 
-ZBAR_HINT = (
-    "The barcode library (pyzbar) is installed but its ZBar DLL will not load.\n\n"
-    "On Windows this almost always means the Visual C++ Redistributable for\n"
-    "Visual Studio 2013 is missing. Install both vcredist_x64.exe and\n"
-    "vcredist_x86.exe from Microsoft, then run this app again."
-)
-
 
 def _fatal(title, message):
     print(f"\n{title}\n{'-' * len(title)}\n{message}\n", file=sys.stderr)
@@ -57,15 +50,6 @@ def _check_dependencies():
     except ImportError:
         _fatal("Pillow is not installed", f"Could not import PIL.\n\n{INSTALL_HINT}")
 
-    try:
-        import pyzbar.pyzbar  # noqa: F401
-    except ImportError as exc:
-        if "zbar" in str(exc).lower():
-            _fatal("Barcode library will not load", ZBAR_HINT)
-        _fatal("pyzbar is not installed", f"Could not import pyzbar.\n\n{INSTALL_HINT}")
-    except OSError:
-        _fatal("Barcode library will not load", ZBAR_HINT)
-
 
 def main():
     parser = argparse.ArgumentParser(description="PCB top/bottom image capture")
@@ -78,10 +62,12 @@ def main():
 
     _check_dependencies()
 
+    import barcode_scanner
     import config as config_module
     from gui import App
 
     settings = config_module.load_settings()
+    print(f"Barcode decoder: {barcode_scanner.backend_description()}")
 
     if args.demo:
         from demo_source import DemoCameraManager

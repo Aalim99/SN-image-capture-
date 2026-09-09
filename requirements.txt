@@ -1,3 +1,7 @@
 opencv-python>=4.8
-pyzbar>=0.1.9
+zxing-cpp>=2.2
 Pillow>=10.0
+
+# pyzbar is supported as an alternative decoder but is NOT required.
+# It needs the VC++ 2013 runtime installed on Windows, which zxing-cpp does not.
+# pyzbar>=0.1.9
