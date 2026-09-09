@@ -179,6 +179,43 @@ is shown in the top camera panel's header:
 A backend that fails to load is skipped rather than stopping the app, so a
 broken install of one decoder can never prevent startup.
 
+### Linear (1D) barcodes need to be big enough
+
+A linear barcode only decodes with roughly **2 pixels per narrow bar**, so
+unlike a QR code it fails when the label is small in frame — and it fails
+*silently*, which looks identical to "no board present". Longer serial
+numbers pack in more bars and therefore need more width.
+
+Measured minimum barcode width for Code128, in a 1920x1080 frame:
+
+| Serial number length | Barcode must be at least |
+|---|---|
+| 5 characters | ~260 px wide |
+| 9 characters | ~360 px wide |
+| 13 characters | ~480 px wide |
+| 21 characters | ~640 px wide |
+
+These are approximate — a crisply printed label does better than a smudged
+one. Budget a comfortable margin: aim for the barcode filling **at least a
+third of the frame width**.
+
+Note this depends on the barcode's own pixel width, *not* the frame size —
+so cropping or zooming in software cannot help. What does help:
+
+- **Raise the camera resolution** (Settings). The same physical label
+  covers proportionally more pixels, which is the real fix. An 8MP camera
+  at 3264x2448 gives about 1.7x the pixels across a label that 1080p does.
+- **Move the camera closer** or fit a longer focal-length lens so the label
+  fills more of the frame.
+- **Use a shorter serial number**, or switch the label to **QR or
+  DataMatrix**, both of which are far more forgiving at small sizes.
+
+When the app sees a barcode it cannot read, it says so rather than staying
+silent: the status shows **BARCODE UNREADABLE — too small or blurred** and
+an amber dashed box marks where it is on the top camera. (Below roughly
+200 px even this detection stops working, and it looks like nothing is
+there at all.)
+
 ## Tests
 
 Hardware-free tests (SN sanitizing, attempt versioning, save/log output,

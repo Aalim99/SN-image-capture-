@@ -17,6 +17,10 @@ BOARD_VISIBLE_SECONDS = 9.0
 GAP_SECONDS = 3.0
 CYCLE = BOARD_VISIBLE_SECONDS + GAP_SECONDS
 
+# A Code128 needs ~2px per narrow bar, so the demo label is drawn wide enough
+# to actually decode - see the README's minimum-width table.
+LINEAR_LABEL_WIDTH = 520
+
 _BOARD_GREEN = (52, 92, 40)
 _SOLDER = (168, 178, 182)
 
@@ -48,14 +52,14 @@ def _render_board(width, height, side, seed):
     return frame
 
 
-def _paste_qr(frame, qr_gray, top_left):
-    qr_bgr = cv2.cvtColor(qr_gray, cv2.COLOR_GRAY2BGR)
-    h, w = qr_bgr.shape[:2]
+def _paste_label(frame, label_gray, top_left):
+    label_bgr = cv2.cvtColor(label_gray, cv2.COLOR_GRAY2BGR)
+    h, w = label_bgr.shape[:2]
     x, y = top_left
     if y + h > frame.shape[0] or x + w > frame.shape[1]:
         return
     cv2.rectangle(frame, (x - 8, y - 8), (x + w + 8, y + h + 8), (255, 255, 255), -1)
-    frame[y:y + h, x:x + w] = qr_bgr
+    frame[y:y + h, x:x + w] = label_bgr
 
 
 class DemoCamera:
@@ -69,11 +73,22 @@ class DemoCamera:
         self.connected = True
         self.error = None
 
-        self._qr_images = {}
+        # SN-DEMO-0003 carries a Code128 label instead of a QR, so demo mode
+        # exercises linear decoding too
+        self._label_images = {}
         for sn in DEMO_SERIALS:
+            linear = ASSETS / f"{sn}-code128.png"
+            if linear.exists():
+                img = cv2.imread(str(linear), cv2.IMREAD_GRAYSCALE)
+                if img is not None:
+                    label_height = int(img.shape[0] * LINEAR_LABEL_WIDTH / img.shape[1])
+                    self._label_images[sn] = cv2.resize(
+                        img, (LINEAR_LABEL_WIDTH, label_height), interpolation=cv2.INTER_AREA
+                    )
+                continue
             img = cv2.imread(str(ASSETS / f"{sn}.png"), cv2.IMREAD_GRAYSCALE)
             if img is not None:
-                self._qr_images[sn] = cv2.resize(img, (190, 190), interpolation=cv2.INTER_NEAREST)
+                self._label_images[sn] = cv2.resize(img, (190, 190), interpolation=cv2.INTER_NEAREST)
 
         self._boards = {
             sn: _render_board(width, height, side, seed=idx * 17 + (0 if side == "top" else 5))
@@ -99,8 +114,10 @@ class DemoCamera:
             return self._empty.copy(), time.time()
 
         frame = self._boards[sn].copy()
-        if self.side == "top" and sn in self._qr_images:
-            _paste_qr(frame, self._qr_images[sn], (int(self.width * 0.62), int(self.height * 0.24)))
+        if self.side == "top" and sn in self._label_images:
+            label = self._label_images[sn]
+            x = (self.width - label.shape[1]) // 2 if label.shape[1] > 300 else int(self.width * 0.62)
+            _paste_label(frame, label, (x, int(self.height * 0.24)))
         return frame, time.time()
 
     def describe(self) -> str:

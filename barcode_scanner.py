@@ -26,6 +26,38 @@ class Detection:
     symbology: str
 
 
+def _new_linear_detector():
+    """OpenCV's 1D barcode detector, if this build has it (4.8+)."""
+    try:
+        return cv2.barcode.BarcodeDetector()
+    except (AttributeError, cv2.error):
+        return None
+
+
+_presence_detector = _new_linear_detector()
+
+
+def locate_unreadable_barcode(frame_bgr):
+    """Find a 1D barcode that is visibly present but could not be decoded.
+
+    A linear barcode needs roughly 2 pixels per narrow bar to decode, so a
+    small or blurred one is seen but not read. Call this only when decoding
+    found nothing: it turns a silent non-detection into a message telling
+    the operator to move the board closer or raise the camera resolution.
+
+    Returns (left, top, width, height) or None.
+    """
+    if _presence_detector is None:
+        return None
+    try:
+        ok, corners = _presence_detector.detect(frame_bgr)
+    except cv2.error:
+        return None
+    if not ok or corners is None or len(corners) == 0:
+        return None
+    return _rect_from_points(corners[0])
+
+
 def _rect_from_points(points):
     xs = [int(p[0]) for p in points]
     ys = [int(p[1]) for p in points]
@@ -72,22 +104,34 @@ def _make_pyzbar(zbar_decode):
 
 
 def _make_opencv():
-    detector = cv2.QRCodeDetector()
+    qr_detector = cv2.QRCodeDetector()
+    linear_detector = _new_linear_detector()
 
     def decode(frame_bgr):
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        try:
-            ok, texts, points, _ = detector.detectAndDecodeMulti(gray)
-        except cv2.error:
-            return []
-        if not ok or points is None:
-            return []
-
         detections = []
-        for text, quad in zip(texts, points):
-            text = (text or "").strip()
-            if text:
-                detections.append(Detection(text, _rect_from_points(quad), "QRCODE"))
+
+        try:
+            ok, texts, points, _ = qr_detector.detectAndDecodeMulti(gray)
+        except cv2.error:
+            ok, texts, points = False, [], None
+        if ok and points is not None:
+            for text, quad in zip(texts, points):
+                text = (text or "").strip()
+                if text:
+                    detections.append(Detection(text, _rect_from_points(quad), "QRCODE"))
+
+        if linear_detector is not None:
+            try:
+                ok, texts, types, corners = linear_detector.detectAndDecodeMulti(gray)
+            except cv2.error:
+                ok = False
+            if ok and corners is not None:
+                for text, kind, quad in zip(texts, types, corners):
+                    text = (text or "").strip()
+                    if text:
+                        detections.append(Detection(text, _rect_from_points(quad), kind or "LINEAR"))
+
         return detections
 
     return decode

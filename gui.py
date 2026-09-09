@@ -23,7 +23,12 @@ import cv2
 from PIL import Image, ImageTk
 
 import config as config_module
-from barcode_scanner import BACKEND_NAME, StableBarcodeDetector, decode_detections
+from barcode_scanner import (
+    BACKEND_NAME,
+    StableBarcodeDetector,
+    decode_detections,
+    locate_unreadable_barcode,
+)
 from capture_session import save_capture
 from imaging import fit_letterbox
 
@@ -46,6 +51,7 @@ MONO = "Consolas"
 
 TICK_MS = 25
 DECODE_INTERVAL = 0.12   # seconds between barcode decodes (full-res decode is expensive)
+PRESENCE_INTERVAL = 0.4  # seconds between "is a barcode there at all?" checks
 PREVIEW_INTERVAL = 0.045  # ~22 fps preview refresh
 HISTORY_LIMIT = 12
 
@@ -124,7 +130,7 @@ class CameraPane:
         self.canvas.create_text(w // 2, h // 2 + 14, text=detail, fill=C["dim"],
                                 font=(FONT, 10), width=w - 40, justify="center")
 
-    def show_frame(self, frame_bgr, detections=()):
+    def show_frame(self, frame_bgr, detections=(), unreadable_rect=None):
         w = self.canvas.winfo_width()
         h = self.canvas.winfo_height()
         if w < 10 or h < 10:
@@ -151,6 +157,15 @@ class CameraPane:
             self.canvas.create_rectangle(x1, y1, x2, y2, outline=C["ok"], width=3)
             self.canvas.create_text(x1, max(y1 - 12, 10), text=det.text, anchor="w",
                                     fill=C["ok"], font=(MONO, 11, "bold"))
+
+        if unreadable_rect is not None and not detections:
+            left, top, bw, bh = unreadable_rect
+            x1 = off_x + left * scale
+            y1 = off_y + top * scale
+            self.canvas.create_rectangle(x1, y1, x1 + bw * scale, y1 + bh * scale,
+                                         outline=C["warn"], width=3, dash=(6, 4))
+            self.canvas.create_text(x1, max(y1 - 12, 10), text="barcode too small to read",
+                                    anchor="w", fill=C["warn"], font=(FONT, 10, "bold"))
 
 
 class App(tk.Tk):
@@ -181,6 +196,8 @@ class App(tk.Tk):
         self._last_preview = 0.0
         self._detections = []
         self.visible_sn = None  # last confirmed SN in view; persists between decode ticks
+        self.unreadable_rect = None  # barcode seen but not decodable
+        self._last_presence_check = 0.0
 
         self._build_ui()
         self._tick()
@@ -373,6 +390,7 @@ class App(tk.Tk):
                 self.visible_sn = self.detector.update_from_texts(
                     [d.text for d in self._detections]
                 )
+                self._update_unreadable_hint(now, top_frame)
                 if self.detector.raw_detected:
                     self.last_seen_time = now
                 elif (
@@ -384,13 +402,28 @@ class App(tk.Tk):
 
         if now - self._last_preview >= PREVIEW_INTERVAL:
             self._last_preview = now
-            self._update_pane(self.top_pane, self.cam_mgr.top, top_frame, self._detections)
+            self._update_pane(self.top_pane, self.cam_mgr.top, top_frame, self._detections,
+                              self.unreadable_rect)
             self._update_pane(self.bottom_pane, self.cam_mgr.bottom, bottom_frame, ())
 
         self._run_state_machine(now)
         self.after(TICK_MS, self._tick)
 
-    def _update_pane(self, pane, camera, frame, detections):
+    def _update_unreadable_hint(self, now, top_frame):
+        """Spot a barcode that is visible but too small/blurry to decode.
+
+        Without this the operator gets no feedback at all - an unreadable
+        label looks exactly like an empty fixture.
+        """
+        if self._detections:
+            self.unreadable_rect = None
+            return
+        if now - self._last_presence_check < PRESENCE_INTERVAL:
+            return
+        self._last_presence_check = now
+        self.unreadable_rect = locate_unreadable_barcode(top_frame)
+
+    def _update_pane(self, pane, camera, frame, detections, unreadable_rect=None):
         if not camera.connected:
             pane.set_status("offline", C["err"])
             pane.show_offline("NO SIGNAL", camera.error or "camera not connected")
@@ -400,7 +433,7 @@ class App(tk.Tk):
             pane.show_offline("STARTING…", "waiting for the first frame")
             return
         pane.set_status("live", C["ok"])
-        pane.show_frame(frame, detections)
+        pane.show_frame(frame, detections, unreadable_rect)
 
     def _run_state_machine(self, now):
         stable_sn = self.visible_sn
@@ -454,6 +487,10 @@ class App(tk.Tk):
         elif stable_sn:
             self.sn_label.configure(text=stable_sn, fg=C["muted"])
             self._draw_status("already captured", C["accent"], "remove board to capture again")
+        elif self.unreadable_rect is not None:
+            self.sn_label.configure(text="—", fg=C["dim"])
+            self._draw_status("barcode unreadable", C["warn"],
+                              "too small or blurred — move closer / raise resolution")
         else:
             self.sn_label.configure(text="—", fg=C["dim"])
             self._draw_status("watching for barcode", C["accent"],
